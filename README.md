@@ -4,10 +4,10 @@
 ```
 python -m venv mlapi
 mlapi\Scripts\activate
-pip install uvicorn gunicorn fastapi pydantic scikit-learn pandas
+pip install uvicorn gunicorn fastapi pydantic scikit-learn pandas python-multipart
 ```
 
-# install
+# run
 
 ```
 uvicorn mlapi:app --reload
