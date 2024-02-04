@@ -3,7 +3,7 @@ Transform: AWS::Serverless-2016-10-31
 Description: >
   python3.8
 
-  Sample SAM Template for lambda-pytorch-example
+  Saltware object detection
 
 Resources:
   pytorchEndpoint:
@@ -14,9 +14,9 @@ Resources:
       Timeout: 300
       Events:
         ApiEndpoint:
-          Type: HttpApi
+          Type: http
           Properties:
-            Path: /inference
+            Path: /detect
             Method: post
             TimeoutInMillis: 29000
     Metadata:
