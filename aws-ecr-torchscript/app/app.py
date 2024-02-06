@@ -25,6 +25,22 @@ s3 = boto3.client("s3")
 bucket = "soltware.test"
 key = "v1/best.torchscript"
 
+def lambda_handler(event, context):
+    '''
+    if event.get("source") in ["aws.events", "serverless-plugin-warmup"]:
+        print('Lambda is warm!')
+        return {}
+    '''
+
+    data = json.loads(event["body"])
+    print("data keys:", data.keys())
+    image = data["image"]
+    response = predict(input_fn_stream(image), model)
+    return {
+        'statusCode': 200,
+        'body': json.dumps(response)
+    }
+
 def download_model(s3, bucket, key):
     file_name = os.path.basename(key)
     print ('file_name', file_name)
@@ -55,21 +71,6 @@ classes = np.array([
   'Tomato Yellow Leaf Curl Virus',
 ])
 
-def lambda_handler(event, context):
-    '''
-    if event.get("source") in ["aws.events", "serverless-plugin-warmup"]:
-        print('Lambda is warm!')
-        return {}
-    '''
-
-    data = json.loads(event["body"])
-    print("data keys:", data.keys())
-    image = data["image"]
-    response = predict(input_fn_stream(image), model)
-    return {
-        'statusCode': 200,
-        'body': json.dumps(response)
-    }
 
 def input_fn_stream(image):
     image = image[image.find(",")+1:]

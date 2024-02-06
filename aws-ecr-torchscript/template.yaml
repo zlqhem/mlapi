@@ -14,7 +14,7 @@ Resources:
       Timeout: 300
       Events:
         ApiEndpoint:
-          Type: http
+          Type: HttpApi
           Properties:
             Path: /detect
             Method: post
@@ -27,4 +27,4 @@ Resources:
 Outputs:
   InferenceApi:
     Description: "API Gateway endpoint URL for Prod stage for inference function"
-    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/inference"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/detect"
