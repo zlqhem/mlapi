@@ -1,0 +1,15 @@
+
+cloud {
+  node "AWS \ngateway" as gw
+  node "AWS \nS3" as s3
+  node "AWS \nLambda" as lambda
+  node "AWS \nECR" as ecr
+}
+actor client
+client -right-> gw : "1.HTTP post"
+gw --> lambda : 2.calls
+lambda -down-> ecr : 3. docker image
+lambda -right-> s3 : 4.request model
+lambda --> gw : 5.return detections
+client <-- gw : 6.HTTP response
+

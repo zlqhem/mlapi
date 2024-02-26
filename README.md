@@ -22,6 +22,21 @@ sam build && sam deploy –-guided
 ```
 
 
+# Workflow
+
+Here's the architecture of the backend:
+
+<p align="center">
+ <img src="./images/arch.png" width="75%" >
+</p>
+
+- The backend and the frontend communicate with each other over HTTP requests. Here is the workflow:
+  - An image is sent from the client through POST request
+  - The image is then received via API Gateway
+  - API Gateway triggers a Lambda function to execute and passes the image to it
+  - The docker image consists of lambda function and dependencies are loaded from AWS ECR
+  - The Lambda function starts running: it first fetches the pretrained models from S3 and detects objects from the given image
+  - Once the Lambda function is done running, it sends the detection result back to the client through API Gateway.
 
 
 # Reference
