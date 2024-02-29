@@ -1,5 +1,7 @@
 # mlapi_flutter
 
+![Vercel](https://vercelbadge.vercel.app/api/zlqhem/mlapi)
+
 A new Flutter project.
 
 ## Getting Started
