@@ -41,5 +41,5 @@ Here's the architecture of the backend:
 
 # Reference
 * [aws:using-container-images-to-run-pytorch-models-in-aws-lambda](https://aws.amazon.com/ko/blogs/machine-learning/using-container-images-to-run-pytorch-models-in-aws-lambda/)
-
+# [aws:Enable CORS on a resource using the API Gateway console](https://docs.aws.amazon.com/apigateway/latest/developerguide/how-to-cors-console.html)
 
