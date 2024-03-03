@@ -38,6 +38,13 @@ def lambda_handler(event, context):
     response = predict(input_fn_stream(image), model)
     return {
         'statusCode': 200,
+        'headers': {
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Origin": "*", # Required for CORS support to work
+            "Access-Control-Allow-Methods": "*",
+            "Accept": "*/*",
+            "Access-Control-Allow-Credentials": "true", # Required for cookies, authorization headers with HTTPS
+        },        
         'body': json.dumps(response)
     }
 

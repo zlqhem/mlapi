@@ -6,6 +6,19 @@ Description: >
   Saltware object detection
 
 Resources:
+  ApiGatewayApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: Prod
+      CorsConfiguration:
+        AllowOrigins:
+        - '*'
+        AllowHeaders:
+        - '*'
+        AllowMethods:
+        - '*'
+        AllowCredentials: false
+
   pytorchEndpoint:
     Type: AWS::Serverless::Function
     Properties:
@@ -19,12 +32,15 @@ Resources:
             Path: /detect
             Method: post
             TimeoutInMillis: 29000
+            ApiId:
+              Ref: ApiGatewayApi
     Metadata:
       Dockerfile: Dockerfile
       DockerContext: ./app
       DockerTag: python3.8-v1
 
+
 Outputs:
   InferenceApi:
     Description: "API Gateway endpoint URL for Prod stage for inference function"
-    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/detect"
+    Value: !Sub "https://${ApiGatewayApi}.execute-api.${AWS::Region}.amazonaws.com/detect"

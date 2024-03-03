@@ -60,7 +60,8 @@ class _MyAppState extends State<MyApp> {
     });
 
     String endpoint =
-        'https://qs9eqe954g.execute-api.us-east-1.amazonaws.com/detect';
+        //'https://qs9eqe954g.execute-api.us-east-1.amazonaws.com/detect';
+	'https://ql824ne57l.execute-api.us-east-1.amazonaws.com/detect';
     final detections = await http.post(
       Uri.parse(endpoint),
       headers: <String, String>{
