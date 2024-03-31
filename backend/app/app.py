@@ -25,6 +25,18 @@ s3 = boto3.client("s3")
 bucket = "soltware.test"
 key = "v1/best.torchscript"
 
+def load_model(s3, bucket):
+  response = s3.get_object(Bucket=bucket, Key=key)
+  #state = torch.load(BytesIO(response["Body"].read()))
+  #model.load_state_dict(state)
+  #model.eval()
+
+  bytes_array = BytesIO(response["Body"].read())
+  model = torch.jit.load(bytes_array, map_location=torch.device('cpu')).eval()
+  return model
+
+model = load_model(s3, bucket)
+
 def lambda_handler(event, context):
     '''
     if event.get("source") in ["aws.events", "serverless-plugin-warmup"]:
@@ -48,37 +60,6 @@ def lambda_handler(event, context):
         'body': json.dumps(response)
     }
 
-def download_model(s3, bucket, key):
-    file_name = os.path.basename(key)
-    print ('file_name', file_name)
-    s3.download_file(bucket, key, file_name)
-
-
-def load_model(s3, bucket):
-  response = s3.get_object(Bucket=bucket, Key=key)
-  #state = torch.load(BytesIO(response["Body"].read()))
-  #model.load_state_dict(state)
-  #model.eval()
-
-  bytes_array = BytesIO(response["Body"].read())
-  model = torch.jit.load(bytes_array, map_location=torch.device('cpu')).eval()
-  return model
-
-model = load_model(s3, bucket)
-
-classes = np.array([
-  'Tomato Healthy',
-  'Strawberry Healthy',
-  'Lettuce Healthy',
-  'Strawberry Ashy Mold',
-  'Strawberry White Powdery Mildew',
-  'Lettuce Bacterial Head Rot',
-  'Lettuce Bacterial Wilt',
-  'Tomato Leaf Mold',
-  'Tomato Yellow Leaf Curl Virus',
-])
-
-
 def input_fn_stream(image):
     image = image[image.find(",")+1:]
     dec = base64.b64decode(image + "===")
@@ -95,19 +76,142 @@ def input_fn_stream(image):
     input = input/255.0
     return torch.Tensor(input)
 
+def download_model(s3, bucket, key):
+    file_name = os.path.basename(key)
+    print ('file_name', file_name)
+    s3.download_file(bucket, key, file_name)
+
+
+classes = np.array([
+  'Tomato Healthy',
+  'Strawberry Healthy',
+  'Lettuce Healthy',
+  'Strawberry Ashy Mold',
+  'Strawberry White Powdery Mildew',
+  'Lettuce Bacterial Head Rot',
+  'Lettuce Bacterial Wilt',
+  'Tomato Leaf Mold',
+  'Tomato Yellow Leaf Curl Virus',
+])
+
+#https://github.com/ibaiGorordo/ONNX-YOLOv8-Object-Detection/blob/main/yolov8%2FYOLOv8.py#L66
 def predict(img_tensor, model):
-  predict_values = model(img_tensor)
-  print(predict_values[0].shape)
-  print('predict_values[0]', predict_values[0])
-  preds = F.softmax(predict_values, dim=1)
-  conf_score, indx = torch.max(preds, dim=1)
-  conf_score = conf_score.cpu().numpy()
-  indx = indx.cpu().numpy()
-  predict_class = classes[indx]
+  outputs = model(img_tensor)
+  boxes, scores, class_ids = process_output(outputs)
+  for box, score, class_id in zip(boxes, scores, class_ids):
+    print(box, score, class_id)
+
   response = {}
-  response['class'] = str(predict_class)
-  response['confidence'] = str(conf_score)
+  response['boxes'] = str(boxes)
+  response['scores'] = str(scores)
+  response['class_ids'] = str(class_ids)
+  response['labels'] = str([classes[id] for id in class_ids])
+  print(response)
   return response
 
+def process_output(output, conf_threshold=0.7, iou_threshold=0.5):
+    #// yolov8 has an output of shape (batchSize, 84,  8400) (Num classes + box[x,y,w,h])
+    output = output.numpy()
+    predictions = np.squeeze(output[0]).T
+
+    print('predictions.shape', predictions.shape)
+    print('pred[0] box', predictions[0][:4])
+    # Filter out object confidence scores below threshold
+    scores = np.max(predictions[:, 4:], axis=1)
+    predictions = predictions[scores > conf_threshold, :]
+    scores = scores[scores > conf_threshold]
+
+    if len(scores) == 0:
+        return [], [], []
+
+    # Get the class with the highest confidence
+    class_ids = np.argmax(predictions[:, 4:], axis=1)
+
+    # Get bounding boxes for each object
+    boxes = extract_boxes(predictions)
+
+    # Apply non-maxima suppression to suppress weak, overlapping bounding boxes
+    # indices = nms(boxes, scores, self.iou_threshold)
+    indices = multiclass_nms(boxes, scores, class_ids, iou_threshold)
+
+    return boxes[indices], scores[indices], class_ids[indices]
+
+def extract_boxes(predictions):
+    # Extract boxes from predictions
+    boxes = predictions[:, :4]
+
+    # TODO: consider rescale
+    # Scale boxes to original image dimensions
+    #boxes = self.rescale_boxes(boxes)
+
+    # Convert boxes to xyxy format
+    boxes = xywh2xyxy(boxes)
+
+    return boxes
+
+def xywh2xyxy(x):
+    # Convert bounding box (x, y, w, h) to bounding box (x1, y1, x2, y2)
+    y = np.copy(x)
+    y[..., 0] = x[..., 0] - x[..., 2] / 2
+    y[..., 1] = x[..., 1] - x[..., 3] / 2
+    y[..., 2] = x[..., 0] + x[..., 2] / 2
+    y[..., 3] = x[..., 1] + x[..., 3] / 2
+    return y
+    
+def multiclass_nms(boxes, scores, class_ids, iou_threshold):
+
+    unique_class_ids = np.unique(class_ids)
+
+    keep_boxes = []
+    for class_id in unique_class_ids:
+        class_indices = np.where(class_ids == class_id)[0]
+        class_boxes = boxes[class_indices,:]
+        class_scores = scores[class_indices]
+
+        class_keep_boxes = nms(class_boxes, class_scores, iou_threshold)
+        keep_boxes.extend(class_indices[class_keep_boxes])
+
+    return keep_boxes
+
+def nms(boxes, scores, iou_threshold):
+    # Sort by score
+    sorted_indices = np.argsort(scores)[::-1]
+
+    keep_boxes = []
+    while sorted_indices.size > 0:
+        # Pick the last box
+        box_id = sorted_indices[0]
+        keep_boxes.append(box_id)
+
+        # Compute IoU of the picked box with the rest
+        ious = compute_iou(boxes[box_id, :], boxes[sorted_indices[1:], :])
+
+        # Remove boxes with IoU over the threshold
+        keep_indices = np.where(ious < iou_threshold)[0]
+
+        # print(keep_indices.shape, sorted_indices.shape)
+        sorted_indices = sorted_indices[keep_indices + 1]
+
+    return keep_boxes
+
+def compute_iou(box, boxes):
+    # Compute xmin, ymin, xmax, ymax for both boxes
+    xmin = np.maximum(box[0], boxes[:, 0])
+    ymin = np.maximum(box[1], boxes[:, 1])
+    xmax = np.minimum(box[2], boxes[:, 2])
+    ymax = np.minimum(box[3], boxes[:, 3])
+
+    # Compute intersection area
+    intersection_area = np.maximum(0, xmax - xmin) * np.maximum(0, ymax - ymin)
+
+    # Compute union area
+    box_area = (box[2] - box[0]) * (box[3] - box[1])
+    boxes_area = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+    union_area = box_area + boxes_area - intersection_area
+
+    # Compute IoU
+    iou = intersection_area / union_area
+
+    return iou
 
 

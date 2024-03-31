@@ -73,7 +73,7 @@ class _MyAppState extends State<MyApp> {
     );
 
     setState(() {
-      outputText = "Post processing ... $detections";
+      outputText = "${detections.body}";
     });
 
     // TODO: post processing `detections` here
