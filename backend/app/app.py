@@ -37,50 +37,11 @@ def load_model(s3, bucket):
 
 model = load_model(s3, bucket)
 
-def lambda_handler(event, context):
-    '''
-    if event.get("source") in ["aws.events", "serverless-plugin-warmup"]:
-        print('Lambda is warm!')
-        return {}
-    '''
 
-    data = json.loads(event["body"])
-    print("data keys:", data.keys())
-    image = data["image"]
-    response = predict(input_fn_stream(image), model)
-    return {
-        'statusCode': 200,
-        'headers': {
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Allow-Origin": "*", # Required for CORS support to work
-            "Access-Control-Allow-Methods": "*",
-            "Accept": "*/*",
-            "Access-Control-Allow-Credentials": "true", # Required for cookies, authorization headers with HTTPS
-        },        
-        'body': json.dumps(response)
-    }
-
-def input_fn_stream(image):
-    image = image[image.find(",")+1:]
-    dec = base64.b64decode(image + "===")
-    byte_array = BytesIO(dec)
-
-    im = Image.open(byte_array).resize((640,640))
-    im = im.convert("RGB")
-
-    #https://dev.to/andreygermanov/how-to-create-yolov8-based-object-detection-web-service-using-python-julia-nodejs-javascript-go-and-rust-4o8e#prepare_the_input
-    # "We do not need Alpha channel in the image for YOLOv8 predictions. Let's remove it"
-    input = np.array(im)
-    input = input.transpose(2,0,1)
-    input = input.reshape(1,3,640,640)
-    input = input/255.0
-    return torch.Tensor(input)
-
-def download_model(s3, bucket, key):
-    file_name = os.path.basename(key)
-    print ('file_name', file_name)
-    s3.download_file(bucket, key, file_name)
-
+input_width=640
+input_height=640
+conf_threshold=0.3
+iou_threshold=0.5
 
 classes = np.array([
   'Tomato Healthy',
@@ -94,14 +55,79 @@ classes = np.array([
   'Tomato Yellow Leaf Curl Virus',
 ])
 
+def lambda_handler(event, context):
+    '''
+    if event.get("source") in ["aws.events", "serverless-plugin-warmup"]:
+        print('Lambda is warm!')
+        return {}
+    '''
+    try:
+        data = json.loads(event["body"])
+        print("data keys:", data.keys())
+        image = data["image"]
+        img_width = int(data["width"])
+        img_height = int(data["height"])
+
+        response = predict(input_fn_stream(image), model, img_width, img_height)
+
+        return {
+            'statusCode': 200,
+            'headers': {
+                "Access-Control-Allow-Headers": "*",
+                "Access-Control-Allow-Origin": "*", # Required for CORS support to work
+                "Access-Control-Allow-Methods": "*",
+                "Accept": "*/*",
+                "Access-Control-Allow-Credentials": "true", # Required for cookies, authorization headers with HTTPS
+            },
+            'body': json.dumps(response)
+        }
+    except Exception as ex:
+        return {
+            'statusCode': 500,
+            'msg': repr(ex),
+            'headers': {
+                "Access-Control-Allow-Headers": "*",
+                "Access-Control-Allow-Origin": "*", # Required for CORS support to work
+                "Access-Control-Allow-Methods": "*",
+                "Accept": "*/*",
+                "Access-Control-Allow-Credentials": "true", # Required for cookies, authorization headers with HTTPS
+            }
+        }
+
+def input_fn_stream(image):
+    image = image[image.find(",")+1:]
+    dec = base64.b64decode(image + "===")
+    byte_array = BytesIO(dec)
+
+    # FIXME: get model input shape.
+    input_widh = 640
+    input_height = 640
+    im = Image.open(byte_array).resize((input_widh,input_height))
+    im = im.convert("RGB")
+
+    #https://dev.to/andreygermanov/how-to-create-yolov8-based-object-detection-web-service-using-python-julia-nodejs-javascript-go-and-rust-4o8e#prepare_the_input
+    # "We do not need Alpha channel in the image for YOLOv8 predictions. Let's remove it"
+    input = np.array(im)
+    input = input.transpose(2,0,1)
+    input = input.reshape(1,3,input_widh,input_height)
+    input = input/255.0
+    return torch.Tensor(input)
+
+'''
+{'predictions':
+  [{'x': 1012.0, 'y': 593.5, 'width': 406.0, 'height': 443.0, 'confidence': 0.7369905710220337, 'class': 'Paper',
+   'image_path': 'example.jpg', 'prediction_type': 'ObjectDetectionModel'}],
+  'image': {'width': 1436, 'height': 956}}
+'''
 #https://github.com/ibaiGorordo/ONNX-YOLOv8-Object-Detection/blob/main/yolov8%2FYOLOv8.py#L66
-def predict(img_tensor, model):
+def predict(img_tensor, model, img_width, img_height):
   outputs = model(img_tensor)
-  boxes, scores, class_ids = process_output(outputs)
+  boxes, scores, class_ids = process_output(outputs, img_width, img_height)
   for box, score, class_id in zip(boxes, scores, class_ids):
     print(box, score, class_id)
 
   response = {}
+  #[x,y,x,y]
   response['boxes'] = str(boxes)
   response['scores'] = str(scores)
   response['class_ids'] = str(class_ids)
@@ -109,7 +135,7 @@ def predict(img_tensor, model):
   print(response)
   return response
 
-def process_output(output, conf_threshold=0.7, iou_threshold=0.5):
+def process_output(output, img_width, img_height):
     #// yolov8 has an output of shape (batchSize, 84,  8400) (Num classes + box[x,y,w,h])
     output = output.numpy()
     predictions = np.squeeze(output[0]).T
@@ -128,7 +154,7 @@ def process_output(output, conf_threshold=0.7, iou_threshold=0.5):
     class_ids = np.argmax(predictions[:, 4:], axis=1)
 
     # Get bounding boxes for each object
-    boxes = extract_boxes(predictions)
+    boxes = extract_boxes(predictions, img_width, img_height)
 
     # Apply non-maxima suppression to suppress weak, overlapping bounding boxes
     # indices = nms(boxes, scores, self.iou_threshold)
@@ -136,17 +162,24 @@ def process_output(output, conf_threshold=0.7, iou_threshold=0.5):
 
     return boxes[indices], scores[indices], class_ids[indices]
 
-def extract_boxes(predictions):
+def extract_boxes(predictions, img_width, img_height):
     # Extract boxes from predictions
     boxes = predictions[:, :4]
 
-    # TODO: consider rescale
     # Scale boxes to original image dimensions
-    #boxes = self.rescale_boxes(boxes)
+    boxes = rescale_boxes(boxes, img_width, img_height)
 
     # Convert boxes to xyxy format
     boxes = xywh2xyxy(boxes)
 
+    return boxes
+
+def rescale_boxes(boxes, img_width, img_height):
+
+    # Rescale boxes to original image dimensions
+    input_shape = np.array([input_width, input_height, input_width, input_height])
+    boxes = np.divide(boxes, input_shape, dtype=np.float32)
+    boxes *= np.array([img_width, img_height, img_width, img_height])
     return boxes
 
 def xywh2xyxy(x):
@@ -157,7 +190,7 @@ def xywh2xyxy(x):
     y[..., 2] = x[..., 0] + x[..., 2] / 2
     y[..., 3] = x[..., 1] + x[..., 3] / 2
     return y
-    
+
 def multiclass_nms(boxes, scores, class_ids, iou_threshold):
 
     unique_class_ids = np.unique(class_ids)
@@ -213,5 +246,4 @@ def compute_iou(box, boxes):
     iou = intersection_area / union_area
 
     return iou
-
 
