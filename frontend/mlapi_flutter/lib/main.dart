@@ -39,10 +39,13 @@ class _MyAppState extends State<MyApp> {
     if (pickedFile != null) {
       try {
         Uint8List _bytes = await pickedFile.readAsBytes();
+        final decodedImage = await decodeImageFromList(_bytes);
+        final height = decodedImage.height; // Image height
+        final width = decodedImage.width; // Image width
 
         // base64 encode the bytes
         String _base64String = base64.encode(_bytes);
-        detect(_base64String);
+        detect(_base64String, width, height);
         msg = "Done";
       } catch (e) {
         msg = "$e";
@@ -54,14 +57,14 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
-  void detect(String bytestring) async {
+  void detect(String bytestring, width, height) async {
     setState(() {
       outputText = "Posting ...";
     });
 
     String endpoint =
         //'https://qs9eqe954g.execute-api.us-east-1.amazonaws.com/detect';
-	'https://ql824ne57l.execute-api.us-east-1.amazonaws.com/Prod/detect';
+        'https://ql824ne57l.execute-api.us-east-1.amazonaws.com/Prod/detect';
     final detections = await http.post(
       Uri.parse(endpoint),
       headers: <String, String>{
@@ -69,6 +72,8 @@ class _MyAppState extends State<MyApp> {
       },
       body: jsonEncode(<String, String>{
         'image': bytestring,
+        'width': width.toString(),
+        'height': height.toString()
       }),
     );
 
